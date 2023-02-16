@@ -2,12 +2,17 @@ use std::{fmt, fs, io, path::PathBuf, process};
 
 use clap::Parser;
 use fmtsize::{Conventional, FmtSize};
+use serde::Serialize;
 
 #[derive(Debug, Parser)]
 struct Args {
     root: String,
+
+    #[arg(short, long)]
+    output: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
 struct DirInfo {
     path: PathBuf,
     len: u64,
@@ -40,8 +45,13 @@ fn main() {
 fn run(args: &Args) -> io::Result<()> {
     let paths = walk(&args.root)?;
 
-    for info in paths {
+    for info in &paths {
         println!("{info}");
+    }
+
+    if let Some(output) = &args.output {
+        let serialized = serde_json::to_string_pretty(&paths)?;
+        fs::write(output, serialized)?;
     }
 
     Ok(())
@@ -50,6 +60,7 @@ fn run(args: &Args) -> io::Result<()> {
 fn walk(root: &str) -> io::Result<Vec<DirInfo>> {
     let mut paths = get_directories(root)?;
     paths.iter_mut().for_each(populate_dir_size);
+    paths.sort_by_key(|path| std::cmp::Reverse(path.len));
     Ok(paths)
 }
 
@@ -59,7 +70,7 @@ fn populate_dir_size(info: &mut DirInfo) {
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let meta = entry.metadata().ok()?;
-            meta.file_type().is_file().then(|| meta.len())
+            meta.file_type().is_file().then_some(meta.len())
         })
         .sum();
     info.len = len;
